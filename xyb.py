@@ -295,6 +295,7 @@ class XybSign:
                 webhook_data = {
                     "openid": acc.open_id,
                     "loginer_id": acc.loginer_id,
+                    "name": acc.user_name,
                     "phone": acc.phone,
                     "train_id": acc.train_id,
                     "sign_type": sign_type,
