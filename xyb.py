@@ -6,6 +6,8 @@ from collections import Counter
 
 import requests
 
+from webhooks import on_sign_in, on_sign_out
+
 
 def init_logger(logger: logging.Logger, fmt="%(asctime)s - %(name)s - %(levelname)s: %(message)s"):
     # logger.setLevel(logging.INFO)
@@ -13,70 +15,6 @@ def init_logger(logger: logging.Logger, fmt="%(asctime)s - %(name)s - %(levelnam
     sh = logging.StreamHandler()
     sh.setFormatter(formatter)
     logger.addHandler(sh)
-
-
-class XybSign:
-    URL_LOGIN = "https://xcx.xybsyw.com/login/login!wx.action"
-    URL_ACCOUNT = "https://xcx.xybsyw.com/account/LoadAccountInfo.action"
-    URL_IP = "https://xcx.xybsyw.com/behavior/Duration!getIp.action"
-    URL_TRAIN = "https://xcx.xybsyw.com/student/clock/GetPlan!getDefault.action"
-    URL_TRAIN_INFO = "https://xcx.xybsyw.com/student/clock/GetPlan!detail.action"
-    URL_BEHAVIOR = "https://app.xybsyw.com/behavior/Duration.action"
-    URL_AUTO_CLOCK = "https://xcx.xybsyw.com/student/clock/Post!autoClock.action"
-    URL_NEW_CLOCK = "https://xcx.xybsyw.com/student/clock/PostNew.action"
-    URL_UPDATE_CLOCK = "https://xcx.xybsyw.com/student/clock/PostNew!updateClock.action"
-
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows WindowsWechat",
-        "content-type": "application/x-www-form-urlencoded"
-    }
-
-    def __init__(self, file="accounts.json"):
-        self.logger = logging.Logger("XybSign", logging.INFO)
-        init_logger(self.logger)
-        with open(file, encoding="utf-8") as fp:
-            accounts = json.load(fp)
-        self.accounts = dict()
-        for acc in accounts:
-            self.accounts[acc["openid"]] = XybAccount(**acc)
-        self.logger.info(f"Loaded {len(self.accounts)} account(s)")
-
-    def get_accounts(self) -> Tuple:
-        """获得账户OpenId列表，便于后续的登录操作"""
-        return tuple(self.accounts.values())
-
-    def _batch_task(self, sign_type: bool, *args):
-        """
-        批量任务
-        :param sign_type: 签到/签出类型
-        :param args: 任务参数
-        """
-        counter = Counter()
-        for acc in self.get_accounts():
-            try:
-                ret = acc.sign_in(*args) if sign_type else acc.sign_out(*args)
-                counter.update((ret,))
-            except RuntimeError as err:
-                self.logger.error("Sign in/out error")
-                self.logger.exception(err)
-                counter.update((False,))
-        self.logger.info(f"Task end. {counter[True]}(Success) / {counter[False]}(Failed)")
-
-    def sign_in_all(self, overwrite=False):
-        """
-        批量签到
-        :param overwrite: 已经签到时是否覆盖
-        """
-        self.logger.info(f"Start to sign in {len(self.accounts)} account(s)")
-        self._batch_task(True, overwrite)
-
-    def sign_out_all(self, overwrite=False):
-        """
-        批量签退
-        :param overwrite: 已经签退时是否覆盖
-        """
-        self.logger.info(f"Start to sign out {len(self.accounts)} account(s)")
-        self._batch_task(False, overwrite)
 
 
 class XybAccount:
@@ -304,5 +242,105 @@ class XybAccount:
             return False
 
 
+class XybSign:
+    URL_LOGIN = "https://xcx.xybsyw.com/login/login!wx.action"
+    URL_ACCOUNT = "https://xcx.xybsyw.com/account/LoadAccountInfo.action"
+    URL_IP = "https://xcx.xybsyw.com/behavior/Duration!getIp.action"
+    URL_TRAIN = "https://xcx.xybsyw.com/student/clock/GetPlan!getDefault.action"
+    URL_TRAIN_INFO = "https://xcx.xybsyw.com/student/clock/GetPlan!detail.action"
+    URL_BEHAVIOR = "https://app.xybsyw.com/behavior/Duration.action"
+    URL_AUTO_CLOCK = "https://xcx.xybsyw.com/student/clock/Post!autoClock.action"
+    URL_NEW_CLOCK = "https://xcx.xybsyw.com/student/clock/PostNew.action"
+    URL_UPDATE_CLOCK = "https://xcx.xybsyw.com/student/clock/PostNew!updateClock.action"
+
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows WindowsWechat",
+        "content-type": "application/x-www-form-urlencoded"
+    }
+
+    def __init__(self, file="accounts.json"):
+        self.logger = logging.Logger("XybSign", logging.INFO)
+        init_logger(self.logger)
+        with open(file, encoding="utf-8") as fp:
+            accounts = json.load(fp)
+        self.accounts = dict()
+        for acc in accounts:
+            self.accounts[acc["openid"]] = XybAccount(**acc)
+        self.logger.info(f"Loaded {len(self.accounts)} account(s)")
+
+    def get_accounts(self) -> Tuple[XybAccount]:
+        """获得账户OpenId列表，便于后续的登录操作"""
+        return tuple(self.accounts.values())
+
+    def _batch_task(self, sign_type: bool, *args):
+        """
+        批量任务
+        :param sign_type: 签到/签出类型
+        :param args: 任务参数
+        """
+        counter = Counter()
+        webhook_queue = list()
+        for acc in self.get_accounts():
+            task_result = False
+            try:
+                ret = acc.sign_in(*args) if sign_type else acc.sign_out(*args)
+            except RuntimeError as err:
+                self.logger.error("Sign in/out error")
+                self.logger.exception(err)
+                counter.update((False,))
+            else:
+                counter.update((ret,))
+                task_result = ret
+            finally:
+                webhook_data = {
+                    "openid": acc.open_id,
+                    "loginer_id": acc.loginer_id,
+                    "phone": acc.phone,
+                    "train_id": acc.train_id,
+                    "sign_type": sign_type,
+                    "result": task_result,
+                    "is_sign_in": acc.is_sign_in,
+                    "is_sign_out": acc.is_sign_out
+                }
+                webhook_queue.append(webhook_data)
+        self.logger.info(f"Task end. {counter[True]}(Success) / {counter[False]}(Failed)")
+        self.webhook(sign_type, webhook_queue)
+
+    def webhook(self, sign_type: bool, hook_data: list):
+        """
+        批量任务通知回调
+        :param sign_type: 签到/签出类型
+        :param hook_data: 回调数据
+        """
+
+        counter = Counter()
+        for data in hook_data:
+            try:
+                on_sign_in(data) if sign_type else on_sign_out(data)
+                counter.update((True,))
+            except Exception as err:
+                self.logger.error("Error in webhook")
+                self.logger.exception(err)
+                counter.update((False,))
+        self.logger.info(f"Webhooks: {len(hook_data)} || {counter[True]}(Done) / {counter[False]}(Error)")
+
+    def sign_in_all(self, overwrite=False):
+        """
+        批量签到
+        :param overwrite: 已经签到时是否覆盖
+        """
+        self.logger.info(f"Start to sign in {len(self.accounts)} account(s)")
+        self._batch_task(True, overwrite)
+
+    def sign_out_all(self, overwrite=False):
+        """
+        批量签退
+        :param overwrite: 已经签退时是否覆盖
+        """
+        self.logger.info(f"Start to sign out {len(self.accounts)} account(s)")
+        self._batch_task(False, overwrite)
+
+
 if __name__ == '__main__':
     xyb = XybSign()
+    xyb.sign_in_all()
