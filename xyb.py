@@ -268,10 +268,6 @@ class XybSign:
             self.accounts[acc["openid"]] = XybAccount(**acc)
         self.logger.info(f"Loaded {len(self.accounts)} account(s)")
 
-    def get_accounts(self) -> Tuple[XybAccount]:
-        """获得账户OpenId列表，便于后续的登录操作"""
-        return tuple(self.accounts.values())
-
     def _batch_task(self, sign_type: bool, *args):
         """
         批量任务
@@ -305,9 +301,9 @@ class XybSign:
                 }
                 webhook_queue.append(webhook_data)
         self.logger.info(f"Task end. {counter[True]}(Success) / {counter[False]}(Failed)")
-        self.webhook(sign_type, webhook_queue)
+        self._webhook(sign_type, webhook_queue)
 
-    def webhook(self, sign_type: bool, hook_data: list):
+    def _webhook(self, sign_type: bool, hook_data: list):
         """
         批量任务通知回调
         :param sign_type: 签到/签出类型
@@ -324,6 +320,10 @@ class XybSign:
                 self.logger.exception(err)
                 counter.update((False,))
         self.logger.info(f"Webhooks: {len(hook_data)} || {counter[True]}(Done) / {counter[False]}(Error)")
+
+    def get_accounts(self) -> Tuple[XybAccount]:
+        """获得账户OpenId列表，便于后续的登录操作"""
+        return tuple(self.accounts.values())
 
     def sign_in_all(self, overwrite=False):
         """
