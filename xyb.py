@@ -79,9 +79,12 @@ class XybAccount:
         # TrainId
         resp = self.session.get(url=XybSign.URL_TRAIN).json()
         if resp["code"] == "200":
-            self.train_id = resp["data"]["clockVo"]["traineeId"]
-            self.logger.info(
-                f"Loaded train plan: {resp['data']['clockVo']['planName']}({resp['data']['clockVo']['startDate']} - {resp['data']['clockVo']['endDate']})")
+            if "clockVo" in resp["data"]:
+                self.train_id = resp["data"]["clockVo"]["traineeId"]
+                self.logger.info(
+                    f"Loaded train plan: {resp['data']['clockVo']['planName']}({resp['data']['clockVo']['startDate']} - {resp['data']['clockVo']['endDate']})")
+            else:
+                self._request_error("No default plan", resp["data"])
         else:
             self._request_error("Failed to load train", resp)
 
@@ -265,8 +268,16 @@ class XybSign:
             accounts = json.load(fp)
         self.accounts = dict()
         for acc in accounts:
-            self.accounts[acc["openid"]] = XybAccount(**acc)
+            try:
+                self.accounts[acc["openid"]] = XybAccount(**acc)
+            except Exception as err:
+                self.logger.error("Error in preload")
+                self.logger.exception(err)
         self.logger.info(f"Loaded {len(self.accounts)} account(s)")
+
+    def get_accounts(self) -> Tuple[XybAccount]:
+        """获得账户OpenId列表，便于后续的登录操作"""
+        return tuple(self.accounts.values())
 
     def _batch_task(self, sign_type: bool, *args):
         """
@@ -301,9 +312,9 @@ class XybSign:
                 }
                 webhook_queue.append(webhook_data)
         self.logger.info(f"Task end. {counter[True]}(Success) / {counter[False]}(Failed)")
-        self._webhook(sign_type, webhook_queue)
+        self.webhook(sign_type, webhook_queue)
 
-    def _webhook(self, sign_type: bool, hook_data: list):
+    def webhook(self, sign_type: bool, hook_data: list):
         """
         批量任务通知回调
         :param sign_type: 签到/签出类型
@@ -320,10 +331,6 @@ class XybSign:
                 self.logger.exception(err)
                 counter.update((False,))
         self.logger.info(f"Webhooks: {len(hook_data)} || {counter[True]}(Done) / {counter[False]}(Error)")
-
-    def get_accounts(self) -> Tuple[XybAccount]:
-        """获得账户OpenId列表，便于后续的登录操作"""
-        return tuple(self.accounts.values())
 
     def sign_in_all(self, overwrite=False):
         """
