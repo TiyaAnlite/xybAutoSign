@@ -4,6 +4,7 @@
 ### 特性
 
 - 原生支持批量签到与签退
+- 同时支持账号密码和小程序登录方式
 - 友好的任务异常处理与日志信息输出
 - 支持API组件化使用
 - 支持Webhooks事件回调
@@ -29,27 +30,72 @@
 
 #### 配置用户信息
 
+在编辑配置文件之前，你需要先确认你的校友邦账号的登录方式，目前支持小程序OpenID登录方式和账号密码登录方式，并确认签到地址的相关信息，并按照以下指引填写相关字段
+
+**若同时填写了两种方式，将优先采用账号密码登录**
+
+##### 账号密码登录
+
+账号密码登录方式，你需要配置用户名和密码
+
+- 用户名`username`
+- 密码`password`
+
+##### 小程序OpenID登录
+
+你需要提供你绑定微信帐号的信息
+
+- 小程序OpenID：`openid`
+- 小程序UnionID：`unionid`
+
+> 关于`openid`与`unionid`的获取，可参考[CncCbz/xybSign](https://github.com/CncCbz/xybSign/blob/main/README.md)
+>
+> `unionid`实际上并不会用于登陆验证流程，但为了保险起见建议正确填写
+
+##### 地址信息
+
+在`location`字段中配置以下字段，作为你的签到地址信息
+
+- 省份`province`
+- 城市`country`
+- 区（县）`city`
+- 行政区划代码`adcode`，可自行百度进行在线查询，注意不要与邮政编码混淆
+- 详细地址`address`
+
+如果你的实习**没有限制签到范围**，将无法获取到定位的坐标信息，则需要额外填写以下字段，未配置坐标信息将会提示相关异常，这通常会发生在集中安排的实习中
+
+- 纬度`lat`
+- 经度`lng`
+
+**特别注意：当同时配置经度和纬度为非`0`值时，将视为有效坐标，并无视实习获取的签到坐标，不再以签到范围的坐标为准。请在配置前再三确认你的配置场景，以免导致外勤签到**
+
+> 坐标可以通过[拾取坐标系统](https://api.map.baidu.com/lbsapi/getpoint/index.html)进行获取，需注意百度地图的坐标拾取结果是经度在前
+
 在`accounts.json`配置用户信息，配置的JSON对象父元素为数组(列表)，错误的格式会导致解析错误，默认已经为其配置了一个空配置，请直接修改默认的空值作为第一个用户，以下是其中一个对象的参考示例
+
+**并非所有字段都是必填，请注意对照上文说明**
 
 ```javascript
 {
+    //用于微信登陆
     "openid": "ooruxxxxxxxxxxxxxxxxxxxxxxl0",  //校友邦openId
     "unionid": "oHYxxxxxxxxxxxxxxxxxxxxxxQhE",  //校友邦unionId
-    "location": {  //以下是地区相关信息
+    //用于账号密码登录
+    "username": "xxxxxx",  //用户名
+    "password": "xxxxxx",  //密码
+    //以下是签到位置相关信息
+    "location": {
         "province": "xx省",  //省份
         "country": "xx市",  //城市
         "city": "xx区",  //区（县）
         "adcode": 440000,  //行政区划代码
         "address": "xxxx"  //详细地址
+        //以下是无签到范围坐标信息时，需要填写的坐标
+        "lat": 0,
+        "lng": 0
     }
 }
 ```
-
-> 关于`openid`与`unionid`的获取，可参考[CncCbz/xybSign](https://github.com/CncCbz/xybSign/blob/main/README.md)
->
-> `unionid`实际上并不会用于登陆验证流程，但为了保险起见建议正确填写
->
-> `adcode`为**行政区划代码**，可自行百度进行在线查询，注意不要与邮政编码混淆
 
 #### 使用
 
@@ -63,13 +109,18 @@
 
 可以在`webhooks.py`中找到预定义的两个hook函数，分别为`on_sign_in`和`on_sign_out`，分别为签到事件和签退事件回调，回调函数只有一个参数`data`，其格式为
 
+**受具体登录方式的影响，部分字段的值可能为空**
+
 ```javascript
 {
-    "openid": "ooruxxxxxxxxxxxxxxxxxxxxxxl0",  //校友邦openId
+    "openid": "ooruxxxxxxxxxxxxxxxxxxxxxxl0",  //校友邦openId，可能为空
+    "username": "xxxxxx"  //登录的用户名，可能为空
     "loginer_id": "00000",  //用户ID，每个用户唯一
     "name": "xxx",  //用户姓名
     "phone": "134xxxxxxxx",  //用户手机号
+    "train_type": true,  //自主与集中实习类型，true为自主安排，false为集中实习
     "train_id": "00000",  //实习ID
+    "post_type": true,  //签到范围限制，true为存在限制签到范围，false为不存在
     "sign_type": true,  //签到与签出类型，true为签到，false为签出
     "result": true,  //任务执行成功情况
     "is_sign_in": true,  //当前是否已签到

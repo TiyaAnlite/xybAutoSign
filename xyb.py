@@ -1,6 +1,7 @@
 import json
-import logging
 import time
+import hashlib
+import logging
 from typing import Tuple
 from collections import Counter
 
@@ -18,21 +19,25 @@ def init_logger(logger: logging.Logger, fmt="%(asctime)s - %(name)s - %(levelnam
 
 
 class XybAccount:
-    def __init__(self, openid: str, unionid: str, location: dict):
+    def __init__(self, **config):
         self.logger = logging.Logger("XybAccount", logging.INFO)
         init_logger(self.logger)
         self.session = requests.Session()
         self.session.headers = XybSign.HEADERS
-        self.open_id = openid
-        self.union_id = unionid
-        self.location = location
+        self.open_id = config.get("openid")
+        self.union_id = config.get("unionid")
+        self.location = config.get("location")
+        self.account = config.get("username")
+        self.account_pass = config.get("password")
         self.session_id = ""
         self.loginer_id = ""
         self.user_name = ""
         self.phone = ""
         self.train_id = ""
-        self.sign_lat = 0
-        self.sign_lng = 0
+        self.train_type = 0
+        self.post_state = 0
+        self.sign_lat = self.location.get("lat", 0)
+        self.sign_lng = self.location.get("lng", 0)
         self.is_sign_in = False
         self.is_sign_out = False
         self.login()
@@ -40,26 +45,55 @@ class XybAccount:
         self.load_train()
         self.load_train_info()
 
-    def _request_error(self, msg: str, debug_data):
+    def _request_error(self, msg: str, debug_data=None):
         self.logger.error(msg)
         self.logger.info(debug_data)
         raise RuntimeError(msg)
 
     def login(self):
-        """执行登录，获得loginerId信息"""
+        """自动登录，根据配置情况进行OpenID或者账号密码登录"""
+
+        if self.account and self.account_pass:
+            self.logger.info("正在使用账号密码登录")
+            self.login_phone()
+        elif self.open_id and self.union_id:
+            self.logger.info("正在使用OpenID登录")
+            self.login_wx()
+        else:
+            self._request_error("未正确配置账户信息")
+
+    def login_wx(self):
+        """执行登录（使用OpenID），获得loginerId信息"""
 
         data = dict(
             openId=self.open_id,
             unionId=self.union_id
         )
-        resp = self.session.post(url=XybSign.URL_LOGIN, data=data).json()
+        resp = self.session.post(url=XybSign.URL_LOGIN_WX, data=data).json()
         if resp["code"] == "200":
             self.loginer_id = resp["data"]["loginerId"]
             self.session_id = resp["data"]["sessionId"]
             self.phone = resp["data"]["phone"]
-            self.logger.info(f"Login susses: {self.loginer_id}")
+            self.logger.info(f"已登录(OpenID)：{self.loginer_id}")
         else:
-            self._request_error(f"Login failed: {self.open_id}", resp)
+            self._request_error(f"登录失败：{self.open_id}", resp)
+
+    def login_phone(self):
+        """执行登录（使用手机号），获得loginerId信息"""
+
+        pass_hash = hashlib.md5(self.account_pass.encode("utf-8"))
+        data = dict(
+            username=self.account,
+            password=pass_hash.hexdigest()
+        )
+        resp = self.session.post(url=XybSign.URL_LOGIN_PHONE, data=data).json()
+        if resp["code"] == "200":
+            self.loginer_id = resp["data"]["loginerId"]
+            self.session_id = resp["data"]["sessionId"]
+            self.phone = resp["data"]["phone"]
+            self.logger.info(f"已登录(账户密码)：{self.loginer_id}")
+        else:
+            self._request_error(f"登录失败：{self.open_id}", resp)
 
     def load_user_info(self):
         """获得用户信息，取得userName"""
@@ -69,9 +103,9 @@ class XybAccount:
         if resp["code"] == "200":
             self.user_name = resp["data"]["loginer"]
             self.logger.name = f"XybAccount[{self.user_name}]"
-            self.logger.info("Login ok")
+            self.logger.info("拉取用户信息完成")
         else:
-            self._request_error(f"Get account info error: {self.open_id}", resp)
+            self._request_error(f"无法获取用户信息：{self.open_id}", resp)
 
     def load_train(self):
         """获得train信息"""
@@ -82,11 +116,11 @@ class XybAccount:
             if "clockVo" in resp["data"]:
                 self.train_id = resp["data"]["clockVo"]["traineeId"]
                 self.logger.info(
-                    f"Loaded train plan: {resp['data']['clockVo']['planName']}({resp['data']['clockVo']['startDate']} - {resp['data']['clockVo']['endDate']})")
+                    f"已载入默认实习：{resp['data']['clockVo']['planName']}({resp['data']['clockVo']['startDate']} - {resp['data']['clockVo']['endDate']})")
             else:
-                self._request_error("No default plan", resp["data"])
+                self._request_error("未找到默认实习，实习可能已结束", resp["data"])
         else:
-            self._request_error("Failed to load train", resp)
+            self._request_error("无法载入默认实习", resp)
 
     def load_train_info(self):
         """获得train详情"""
@@ -94,14 +128,24 @@ class XybAccount:
         # TrainInfo
         resp = self.session.post(url=XybSign.URL_TRAIN_INFO, data=dict(traineeId=self.train_id)).json()
         if resp["code"] == "200":
-            self.sign_lat = resp["data"]["postInfo"]["lat"]
-            self.sign_lng = resp["data"]["postInfo"]["lng"]
+            self.train_type = resp["data"]["clockRuleType"]
+            self.post_state = resp["data"]["postInfo"]["state"]
             self.is_sign_in = bool(resp["data"]["clockInfo"]["inTime"])
             self.is_sign_out = bool(resp["data"]["clockInfo"]["outTime"])
+            self.logger.info(f"实习类型：{'自主' if self.train_type else '集中'}，实习定位：{'有' if self.post_state else '无'}")
+            if self.post_state:
+                if self.sign_lat and self.sign_lng:
+                    self.logger.warning(f"配置了一个有效的签到坐标{self.sign_lat}, {self.sign_lng}，将不再使用实习坐标")
+                else:
+                    self.sign_lat = resp["data"]["postInfo"]["lat"]
+                    self.sign_lng = resp["data"]["postInfo"]["lng"]
+                    self.logger.info(f"将使用获取到的实习坐标：{self.sign_lat}, {self.sign_lng}")
             self.logger.info(
-                f"Loaded train info: Sign in[{'√' if self.is_sign_in else 'x'}] || Sign out[{'√' if self.is_sign_out else 'x'}]")
+                f"考勤状态：Sign in[{'√' if self.is_sign_in else 'x'}] || Sign out[{'√' if self.is_sign_out else 'x'}]")
+            if not self.sign_lat:
+                self._request_error("无定位信息，请按照文档手动添加签到定位信息")
         else:
-            self._request_error("Failed to load train info", resp)
+            self._request_error("无法加载实习信息", resp)
 
     def get_ip(self) -> str:
         """获得请求IP"""
@@ -109,7 +153,7 @@ class XybAccount:
         if resp["code"] == "200":
             return resp["data"]["ip"]
         else:
-            self._request_error(f"Failed to get IP", resp)
+            self._request_error(f"无法获得本机IP", resp)
 
     def sign_behavior(self):
         """签到行为记录"""
@@ -143,7 +187,7 @@ class XybAccount:
         }
         resp = self.session.post(url=XybSign.URL_BEHAVIOR, data=data).json()
         if resp["code"] != "200":
-            self._request_error("Failed to send behavior", resp)
+            self._request_error("发送签到信息失败", resp)
 
     def _prepare_sign(self, status: int) -> dict:
         """
@@ -174,7 +218,7 @@ class XybAccount:
         resp = self.session.post(url=XybSign.URL_AUTO_CLOCK, data=self._prepare_sign(status)).json()
         self.load_train_info()
         if resp["code"] != "200":
-            self._request_error(f"Failed to [AUTO]sign", resp)
+            self._request_error(f"无法进行【自动】签到", resp)
 
     def new_sign(self, status: int):
         """
@@ -185,7 +229,7 @@ class XybAccount:
         resp = self.session.post(url=XybSign.URL_NEW_CLOCK, data=self._prepare_sign(status)).json()
         self.load_train_info()
         if resp["code"] != "200":
-            self._request_error(f"Failed to [NEW]sign", resp)
+            self._request_error(f"无法进行【新增】签到", resp)
 
     def update_sign(self, status: int):
         """
@@ -196,7 +240,7 @@ class XybAccount:
         resp = self.session.post(url=XybSign.URL_UPDATE_CLOCK, data=self._prepare_sign(status)).json()
         self.load_train_info()
         if resp["code"] != "200":
-            self._request_error(f"Failed to [UPDATE]sign", resp)
+            self._request_error(f"无法进行【覆盖】签到", resp)
 
     def sign_in(self, overwrite=False) -> bool:
         """
@@ -208,17 +252,17 @@ class XybAccount:
             if overwrite:
                 if not self.is_sign_out:
                     self.update_sign(2)
-                    self.logger.info("Sign in success(Overwrite mode)")
+                    self.logger.info("签到完成：覆盖模式")
                     return True
                 else:
-                    self.logger.error("Cannot update sign in record, already sign out")
+                    self.logger.error("已签退，无法进行签到")
                     return False
             else:
-                self.logger.warning("Sign in skip..")
+                self.logger.warning("已经进行过签到，本次操作未进行...")
                 return False
         else:
             self.auto_sign(2)
-            self.logger.info("Sign in success(Auto clock mode)")
+            self.logger.info("签到完成：自动触发模式")
             return True
 
     def sign_out(self, overwrite=False) -> bool:
@@ -231,22 +275,23 @@ class XybAccount:
             if self.is_sign_out:
                 if overwrite:
                     self.update_sign(1)
-                    self.logger.info("Sign out success(Overwrite mode)")
+                    self.logger.info("签退完成：覆盖模式")
                     return True
                 else:
-                    self.logger.warning("Sign out skip..")
+                    self.logger.warning("已经进行过签退，本次操作未进行...")
                     return False
             else:
                 self.new_sign(1)
-                self.logger.info("Sign out success(New append mode)")
+                self.logger.info("签退完成：新增记录模式")
                 return True
         else:
-            self.logger.error("Cannot sign out, must be sign in first")
+            self.logger.error("无法进行签退，必须先进行签到操作")
             return False
 
 
 class XybSign:
-    URL_LOGIN = "https://xcx.xybsyw.com/login/login!wx.action"
+    URL_LOGIN_PHONE = "https://xcx.xybsyw.com/login/login.action"
+    URL_LOGIN_WX = "https://xcx.xybsyw.com/login/login!wx.action"
     URL_ACCOUNT = "https://xcx.xybsyw.com/account/LoadAccountInfo.action"
     URL_IP = "https://xcx.xybsyw.com/behavior/Duration!getIp.action"
     URL_TRAIN = "https://xcx.xybsyw.com/student/clock/GetPlan!getDefault.action"
@@ -271,9 +316,9 @@ class XybSign:
             try:
                 self.accounts[acc["openid"]] = XybAccount(**acc)
             except Exception as err:
-                self.logger.error("Error in preload")
+                self.logger.error("载入账户时出现异常")
                 self.logger.exception(err)
-        self.logger.info(f"Loaded {len(self.accounts)} account(s)")
+        self.logger.info(f"已载入 {len(self.accounts)} 个账号")
 
     def get_accounts(self) -> Tuple[XybAccount]:
         """获得账户OpenId列表，便于后续的登录操作"""
@@ -292,7 +337,7 @@ class XybSign:
             try:
                 ret = acc.sign_in(*args) if sign_type else acc.sign_out(*args)
             except RuntimeError as err:
-                self.logger.error("Sign in/out error")
+                self.logger.error("签到/退失败")
                 self.logger.exception(err)
                 counter.update((False,))
             else:
@@ -301,17 +346,20 @@ class XybSign:
             finally:
                 webhook_data = {
                     "openid": acc.open_id,
+                    "username": acc.account,
                     "loginer_id": acc.loginer_id,
                     "name": acc.user_name,
                     "phone": acc.phone,
+                    "train_type": bool(acc.train_type),
                     "train_id": acc.train_id,
+                    "post_type": bool(acc.post_state),
                     "sign_type": sign_type,
                     "result": task_result,
                     "is_sign_in": acc.is_sign_in,
                     "is_sign_out": acc.is_sign_out
                 }
                 webhook_queue.append(webhook_data)
-        self.logger.info(f"Task end. {counter[True]}(Success) / {counter[False]}(Failed)")
+        self.logger.info(f"任务结束，{counter[True]}(成功) / {counter[False]}(失败)")
         self.webhook(sign_type, webhook_queue)
 
     def webhook(self, sign_type: bool, hook_data: list):
@@ -327,17 +375,17 @@ class XybSign:
                 on_sign_in(data) if sign_type else on_sign_out(data)
                 counter.update((True,))
             except Exception as err:
-                self.logger.error("Error in webhook")
+                self.logger.error("调用Webhook时出现异常")
                 self.logger.exception(err)
                 counter.update((False,))
-        self.logger.info(f"Webhooks: {len(hook_data)} || {counter[True]}(Done) / {counter[False]}(Error)")
+        self.logger.info(f"Webhooks: {len(hook_data)} || {counter[True]}(完成) / {counter[False]}(失败)")
 
     def sign_in_all(self, overwrite=False):
         """
         批量签到
         :param overwrite: 已经签到时是否覆盖
         """
-        self.logger.info(f"Start to sign in {len(self.accounts)} account(s)")
+        self.logger.info(f"开始批量签到 {len(self.accounts)} 个账户")
         self._batch_task(True, overwrite)
 
     def sign_out_all(self, overwrite=False):
@@ -345,7 +393,7 @@ class XybSign:
         批量签退
         :param overwrite: 已经签退时是否覆盖
         """
-        self.logger.info(f"Start to sign out {len(self.accounts)} account(s)")
+        self.logger.info(f"开始批量签退 {len(self.accounts)} 个账户")
         self._batch_task(False, overwrite)
 
 

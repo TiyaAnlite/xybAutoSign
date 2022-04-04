@@ -2,12 +2,16 @@
     {
         "openid": "",
         "unionid": "",
+        "username": "",
+        "password": "",
         "location": {
             "province": "",
             "country": "",
             "city": "",
             "adcode": 0,
-            "address": ""
+            "address": "",
+            "lat": 0,
+            "lng": 0
         }
     }
 ]
