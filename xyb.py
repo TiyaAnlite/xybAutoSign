@@ -22,6 +22,7 @@ class XybAccount:
     def __init__(self, **config):
         self.logger = logging.Logger("XybAccount", logging.INFO)
         init_logger(self.logger)
+        self.train_init = False
         self.session = requests.Session()
         self.session.headers = XybSign.HEADERS
         self.open_id = config.get("openid")
@@ -132,18 +133,20 @@ class XybAccount:
             self.post_state = resp["data"]["postInfo"]["state"]
             self.is_sign_in = bool(resp["data"]["clockInfo"]["inTime"])
             self.is_sign_out = bool(resp["data"]["clockInfo"]["outTime"])
-            self.logger.info(f"实习类型：{'自主' if self.train_type else '集中'}，实习定位：{'有' if self.post_state else '无'}")
-            if self.post_state:
-                if self.sign_lat and self.sign_lng:
-                    self.logger.warning(f"配置了一个有效的签到坐标{self.sign_lat}, {self.sign_lng}，将不再使用实习坐标")
-                else:
-                    self.sign_lat = resp["data"]["postInfo"]["lat"]
-                    self.sign_lng = resp["data"]["postInfo"]["lng"]
-                    self.logger.info(f"将使用获取到的实习坐标：{self.sign_lat}, {self.sign_lng}")
+            if not self.train_init:
+                self.logger.info(f"实习类型：{'自主' if self.train_type else '集中'}，实习定位：{'有' if self.post_state else '无'}")
+                if self.post_state:
+                    if self.sign_lat and self.sign_lng:
+                        self.logger.warning(f"配置了一个有效的签到坐标{self.sign_lat}, {self.sign_lng}，将不再使用实习坐标")
+                    else:
+                        self.sign_lat = resp["data"]["postInfo"]["lat"]
+                        self.sign_lng = resp["data"]["postInfo"]["lng"]
+                        self.logger.info(f"将使用获取到的实习坐标：{self.sign_lat}, {self.sign_lng}")
             self.logger.info(
                 f"考勤状态：Sign in[{'√' if self.is_sign_in else 'x'}] || Sign out[{'√' if self.is_sign_out else 'x'}]")
             if not self.sign_lat:
                 self._request_error("无定位信息，请按照文档手动添加签到定位信息")
+            self.train_init = True
         else:
             self._request_error("无法加载实习信息", resp)
 
@@ -215,10 +218,12 @@ class XybAccount:
         自动签到逻辑下，仅有未签到记录时才会自动签到，其余情况不会修改记录
         :param status: 签到/签出类型(1签出2签到)
         """
+        if status not in (1, 2):
+            raise RuntimeError(f"传入的签到类型错误:{status}")
         resp = self.session.post(url=XybSign.URL_AUTO_CLOCK, data=self._prepare_sign(status)).json()
         self.load_train_info()
         if resp["code"] != "200":
-            self._request_error(f"无法进行【自动】签到", resp)
+            self._request_error(f"无法进行【自动】{['签退', '签到'][status - 1]}", resp)
 
     def new_sign(self, status: int):
         """
@@ -226,10 +231,12 @@ class XybAccount:
         会直接追加新的签到记录，新的记录可以是签到或者签退
         :param status: 签到/签出类型(1签出2签到)
         """
+        if status not in (1, 2):
+            raise RuntimeError(f"传入的签到类型错误:{status}")
         resp = self.session.post(url=XybSign.URL_NEW_CLOCK, data=self._prepare_sign(status)).json()
         self.load_train_info()
         if resp["code"] != "200":
-            self._request_error(f"无法进行【新增】签到", resp)
+            self._request_error(f"无法进行【新增】{['签退', '签到'][status - 1]}", resp)
 
     def update_sign(self, status: int):
         """
@@ -237,10 +244,12 @@ class XybAccount:
         更新最近的签到/签退记录，已有签退记录时无法更新之前的签到记录
         :param status: 签到/签出类型(1签出2签到)
         """
+        if status not in (1, 2):
+            raise RuntimeError(f"传入的签到类型错误:{status}")
         resp = self.session.post(url=XybSign.URL_UPDATE_CLOCK, data=self._prepare_sign(status)).json()
         self.load_train_info()
         if resp["code"] != "200":
-            self._request_error(f"无法进行【覆盖】签到", resp)
+            self._request_error(f"无法进行【覆盖】{['签退', '签到'][status - 1]}", resp)
 
     def sign_in(self, overwrite=False) -> bool:
         """
@@ -299,7 +308,7 @@ class XybSign:
     URL_BEHAVIOR = "https://app.xybsyw.com/behavior/Duration.action"
     URL_AUTO_CLOCK = "https://xcx.xybsyw.com/student/clock/Post!autoClock.action"
     URL_NEW_CLOCK = "https://xcx.xybsyw.com/student/clock/PostNew.action"
-    URL_UPDATE_CLOCK = "https://xcx.xybsyw.com/student/clock/PostNew!updateClock.action"
+    URL_UPDATE_CLOCK = "https://xcx.xybsyw.com/student/clock/Post!updateClock.action"
 
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows WindowsWechat",
@@ -399,4 +408,4 @@ class XybSign:
 
 if __name__ == '__main__':
     xyb = XybSign()
-    xyb.sign_in_all()
+    xyb.sign_in_all(True)
