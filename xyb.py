@@ -1,9 +1,12 @@
+import re
 import json
 import time
+import random
 import hashlib
 import logging
-from typing import Tuple
+from typing import Tuple, List
 from collections import Counter
+from urllib.parse import quote
 
 import requests
 
@@ -70,6 +73,7 @@ class XybAccount:
             openId=self.open_id,
             unionId=self.union_id
         )
+        self.session.headers.update(self.sign_header(data))
         resp = self.session.post(url=XybSign.URL_LOGIN_WX, data=data).json()
         if resp["code"] == "200":
             self.loginer_id = resp["data"]["loginerId"]
@@ -87,6 +91,7 @@ class XybAccount:
             username=self.account,
             password=pass_hash.hexdigest()
         )
+        self.session.headers.update(self.sign_header(data))
         resp = self.session.post(url=XybSign.URL_LOGIN_PHONE, data=data).json()
         if resp["code"] == "200":
             self.loginer_id = resp["data"]["loginerId"]
@@ -96,10 +101,60 @@ class XybAccount:
         else:
             self._request_error(f"登录失败：{self.open_id}", resp)
 
+    def sign_header(self, data: dict, noce: List[int] = None, now_time: int = None) -> dict:
+        """
+        请求签名
+
+        :param data: 请求体数据
+        :param noce: 随机数列表(下标不能超过密码本长度)
+        :param now_time: 时间戳
+        :return: 签名用Headers
+        """
+        re_punctuation = re.compile("[`~!@#$%^&*()+=|{}':;',\\[\\].<>/?~！@#￥%……&*（）——+|{}【】‘；：”“’。，、？]")
+        cookbook = ["5", "b", "f", "A", "J", "Q", "g", "a", "l", "p", "s", "q", "H", "4", "L", "Q", "g", "1", "6", "Q",
+                    "Z", "v", "w", "b", "c", "e", "2", "2", "m", "l", "E", "g", "G", "H", "I", "r", "o", "s", "d", "5",
+                    "7", "x", "t", "J", "S", "T", "F", "v", "w", "4", "8", "9", "0", "K", "E", "3", "4", "0", "m", "r",
+                    "i", "n"]
+        except_key = ["content", "deviceName", "keyWord", "blogBody", "blogTitle", "getType", "responsibilities",
+                      "street", "text", "reason", "searchvalue", "key", "answers", "leaveReason", "personRemark",
+                      "selfAppraisal", "imgUrl", "wxname", "deviceId", "avatarTempPath", "file", "file", "model",
+                      "brand", "system", "deviceId", "platform"]
+        noce = noce if noce else [random.randint(0, len(cookbook) - 1) for _ in range(20)]
+        now_time = now_time if now_time else int(time.time())
+        sorted_data = dict(sorted(data.items(), key=lambda x: x[0]))
+
+        sign_str = ""
+        for k, v in sorted_data.items():
+            v = str(v)
+            if k not in except_key and not re.search(re_punctuation, v):
+                self.logger.debug(f"Add keys: {k}")
+                sign_str += str(v)
+        sign_str += str(now_time)
+        sign_str += "".join([cookbook[i] for i in noce])
+        sign_str = re.sub(r'\s+', "", sign_str)
+        sign_str = re.sub(r'\n+', "", sign_str)
+        sign_str = re.sub(r'\r+', "", sign_str)
+        sign_str = sign_str.replace("<", "")
+        sign_str = sign_str.replace(">", "")
+        sign_str = sign_str.replace("&", "")
+        sign_str = sign_str.replace("-", "")
+        sign_str = re.sub(f'\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F]', "", sign_str)
+        sign_str = quote(sign_str)
+        sign = hashlib.md5(sign_str.encode('ascii'))
+
+        return {
+            "n": ",".join(except_key),
+            "t": str(now_time),
+            "s": "_".join([str(i) for i in noce]),
+            "m": sign.hexdigest(),
+            "v": "1.7.14"
+        }
+
     def load_user_info(self):
         """获得用户信息，取得userName"""
 
         # Loginer
+        self.session.headers.update(self.sign_header({}))
         resp = self.session.get(url=XybSign.URL_ACCOUNT).json()
         if resp["code"] == "200":
             self.user_name = resp["data"]["loginer"]
@@ -112,6 +167,7 @@ class XybAccount:
         """获得train信息"""
 
         # TrainId
+        self.session.headers.update(self.sign_header({}))
         resp = self.session.get(url=XybSign.URL_TRAIN).json()
         if resp["code"] == "200":
             if "clockVo" in resp["data"]:
@@ -127,7 +183,9 @@ class XybAccount:
         """获得train详情"""
 
         # TrainInfo
-        resp = self.session.post(url=XybSign.URL_TRAIN_INFO, data=dict(traineeId=self.train_id)).json()
+        data = dict(traineeId=self.train_id)
+        self.session.headers.update(self.sign_header(data))
+        resp = self.session.post(url=XybSign.URL_TRAIN_INFO, data=data).json()
         if resp["code"] == "200":
             self.train_type = resp["data"]["clockRuleType"]
             self.post_state = resp["data"]["postInfo"]["state"]
@@ -152,6 +210,7 @@ class XybAccount:
 
     def get_ip(self) -> str:
         """获得请求IP"""
+        self.session.headers.update(self.sign_header({}))
         resp = self.session.get(url=XybSign.URL_IP).json()
         if resp["code"] == "200":
             return resp["data"]["ip"]
@@ -159,7 +218,7 @@ class XybAccount:
             self._request_error(f"无法获得本机IP", resp)
 
     def sign_behavior(self):
-        """签到行为记录"""
+        """签到行为记录(目前已弃用)"""
         data = {
             'login': 1,
             'appVersion': '1.5.75',
@@ -188,17 +247,19 @@ class XybAccount:
             'country': self.location['country'],
             'city': self.location['city']
         }
+        self.session.headers.update(self.sign_header(data))
         resp = self.session.post(url=XybSign.URL_BEHAVIOR, data=data).json()
         if resp["code"] != "200":
             self._request_error("发送签到信息失败", resp)
 
     def _prepare_sign(self, status: int) -> dict:
         """
-        签到前准备，包括行为记录和构建数据
+        签到前准备，包括行为记录(已停用)和构建数据
+
         :param status: 签到/签出类型(1签出2签到)
         :return: 构建好的签到数据
         """
-        self.sign_behavior()
+        # self.sign_behavior()
         return {
             'traineeId': self.train_id,
             'adcode': self.location['adcode'],
@@ -215,12 +276,16 @@ class XybAccount:
     def auto_sign(self, status: int):
         """
         签到签退自动触发型记录逻辑，非特殊不要直接使用
+
         自动签到逻辑下，仅有未签到记录时才会自动签到，其余情况不会修改记录
+
         :param status: 签到/签出类型(1签出2签到)
         """
         if status not in (1, 2):
             raise RuntimeError(f"传入的签到类型错误:{status}")
-        resp = self.session.post(url=XybSign.URL_AUTO_CLOCK, data=self._prepare_sign(status)).json()
+        data = self._prepare_sign(status)
+        self.session.headers.update(self.sign_header(data))
+        resp = self.session.post(url=XybSign.URL_AUTO_CLOCK, data=data).json()
         self.load_train_info()
         if resp["code"] != "200":
             self._request_error(f"无法进行【自动】{['签退', '签到'][status - 1]}", resp)
@@ -228,12 +293,16 @@ class XybAccount:
     def new_sign(self, status: int):
         """
         签到签退追加型记录逻辑，非特殊不要直接使用
+
         会直接追加新的签到记录，新的记录可以是签到或者签退
+
         :param status: 签到/签出类型(1签出2签到)
         """
         if status not in (1, 2):
             raise RuntimeError(f"传入的签到类型错误:{status}")
-        resp = self.session.post(url=XybSign.URL_NEW_CLOCK, data=self._prepare_sign(status)).json()
+        data = self._prepare_sign(status)
+        self.session.headers.update(self.sign_header(data))
+        resp = self.session.post(url=XybSign.URL_NEW_CLOCK, data=data).json()
         self.load_train_info()
         if resp["code"] != "200":
             self._request_error(f"无法进行【新增】{['签退', '签到'][status - 1]}", resp)
@@ -241,12 +310,16 @@ class XybAccount:
     def update_sign(self, status: int):
         """
         签到签退更新型记录逻辑，非特殊不要直接使用
+
         更新最近的签到/签退记录，已有签退记录时无法更新之前的签到记录
+
         :param status: 签到/签出类型(1签出2签到)
         """
         if status not in (1, 2):
             raise RuntimeError(f"传入的签到类型错误:{status}")
-        resp = self.session.post(url=XybSign.URL_UPDATE_CLOCK, data=self._prepare_sign(status)).json()
+        data = self._prepare_sign(status)
+        self.session.headers.update(self.sign_header(data))
+        resp = self.session.post(url=XybSign.URL_UPDATE_CLOCK, data=data).json()
         self.load_train_info()
         if resp["code"] != "200":
             self._request_error(f"无法进行【覆盖】{['签退', '签到'][status - 1]}", resp)
@@ -254,6 +327,7 @@ class XybAccount:
     def sign_in(self, overwrite=False) -> bool:
         """
         签到
+
         :param overwrite: 已经签到时是否覆盖
         :return 签到结果
         """
@@ -277,6 +351,7 @@ class XybAccount:
     def sign_out(self, overwrite=False) -> bool:
         """
         签退
+
         :param overwrite: 已经签退时是否覆盖
         :return 签退结果
         """
@@ -312,7 +387,8 @@ class XybSign:
 
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows WindowsWechat",
-        "content-type": "application/x-www-form-urlencoded"
+        "content-type": "application/x-www-form-urlencoded",
+        "Accept-Encoding": "gzip, deflate"
     }
 
     def __init__(self, file="accounts.json"):
@@ -336,6 +412,7 @@ class XybSign:
     def _batch_task(self, sign_type: bool, *args):
         """
         批量任务
+
         :param sign_type: 签到/签出类型
         :param args: 任务参数
         """
@@ -374,6 +451,7 @@ class XybSign:
     def webhook(self, sign_type: bool, hook_data: list):
         """
         批量任务通知回调
+
         :param sign_type: 签到/签出类型
         :param hook_data: 回调数据
         """
@@ -392,6 +470,7 @@ class XybSign:
     def sign_in_all(self, overwrite=False):
         """
         批量签到
+
         :param overwrite: 已经签到时是否覆盖
         """
         self.logger.info(f"开始批量签到 {len(self.accounts)} 个账户")
@@ -400,6 +479,7 @@ class XybSign:
     def sign_out_all(self, overwrite=False):
         """
         批量签退
+
         :param overwrite: 已经签退时是否覆盖
         """
         self.logger.info(f"开始批量签退 {len(self.accounts)} 个账户")
@@ -408,4 +488,4 @@ class XybSign:
 
 if __name__ == '__main__':
     xyb = XybSign()
-    xyb.sign_in_all(True)
+    xyb.sign_in_all()
