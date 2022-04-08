@@ -396,18 +396,18 @@ class XybSign:
         init_logger(self.logger)
         with open(file, encoding="utf-8") as fp:
             accounts = json.load(fp)
-        self.accounts = dict()
+        self._accounts = list()
         for acc in accounts:
             try:
-                self.accounts[acc["openid"]] = XybAccount(**acc)
+                self._accounts.append(XybAccount(**acc))
             except Exception as err:
                 self.logger.error("载入账户时出现异常")
                 self.logger.exception(err)
-        self.logger.info(f"已载入 {len(self.accounts)} 个账号")
+        self.logger.info(f"已载入 {len(self._accounts)} 个账号")
 
     def get_accounts(self) -> Tuple[XybAccount]:
         """获得账户OpenId列表，便于后续的登录操作"""
-        return tuple(self.accounts.values())
+        return tuple(self._accounts)
 
     def _batch_task(self, sign_type: bool, *args):
         """
@@ -473,7 +473,7 @@ class XybSign:
 
         :param overwrite: 已经签到时是否覆盖
         """
-        self.logger.info(f"开始批量签到 {len(self.accounts)} 个账户")
+        self.logger.info(f"开始批量签到 {len(self._accounts)} 个账户")
         self._batch_task(True, overwrite)
 
     def sign_out_all(self, overwrite=False):
@@ -482,7 +482,7 @@ class XybSign:
 
         :param overwrite: 已经签退时是否覆盖
         """
-        self.logger.info(f"开始批量签退 {len(self.accounts)} 个账户")
+        self.logger.info(f"开始批量签退 {len(self._accounts)} 个账户")
         self._batch_task(False, overwrite)
 
 
