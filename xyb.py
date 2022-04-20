@@ -54,6 +54,15 @@ class XybAccount:
         self.logger.info(debug_data)
         raise RuntimeError(msg)
 
+    def _except_json_resp(self, resp: requests.models.Response):
+        try:
+            return resp.json()
+        except ValueError:
+            return {
+                "code": 500,
+                "text": resp.text
+            }
+
     def login(self):
         """自动登录，根据配置情况进行OpenID或者账号密码登录"""
 
@@ -74,7 +83,8 @@ class XybAccount:
             unionId=self.union_id
         )
         self.session.headers.update(self.sign_header(data))
-        resp = self.session.post(url=XybSign.URL_LOGIN_WX, data=data).json()
+        resp = self.session.post(url=XybSign.URL_LOGIN_WX, data=data)
+        resp = self._except_json_resp(resp)
         if resp["code"] == "200":
             self.loginer_id = resp["data"]["loginerId"]
             self.session_id = resp["data"]["sessionId"]
@@ -92,7 +102,8 @@ class XybAccount:
             password=pass_hash.hexdigest()
         )
         self.session.headers.update(self.sign_header(data))
-        resp = self.session.post(url=XybSign.URL_LOGIN_PHONE, data=data).json()
+        resp = self.session.post(url=XybSign.URL_LOGIN_PHONE, data=data)
+        resp = self._except_json_resp(resp)
         if resp["code"] == "200":
             self.loginer_id = resp["data"]["loginerId"]
             self.session_id = resp["data"]["sessionId"]
@@ -155,7 +166,8 @@ class XybAccount:
 
         # Loginer
         self.session.headers.update(self.sign_header({}))
-        resp = self.session.get(url=XybSign.URL_ACCOUNT).json()
+        resp = self.session.get(url=XybSign.URL_ACCOUNT)
+        resp = self._except_json_resp(resp)
         if resp["code"] == "200":
             self.user_name = resp["data"]["loginer"]
             self.logger.name = f"XybAccount[{self.user_name}]"
@@ -168,7 +180,8 @@ class XybAccount:
 
         # TrainId
         self.session.headers.update(self.sign_header({}))
-        resp = self.session.get(url=XybSign.URL_TRAIN).json()
+        resp = self.session.get(url=XybSign.URL_TRAIN)
+        resp = self._except_json_resp(resp)
         if resp["code"] == "200":
             if "clockVo" in resp["data"]:
                 self.train_id = resp["data"]["clockVo"]["traineeId"]
@@ -185,7 +198,8 @@ class XybAccount:
         # TrainInfo
         data = dict(traineeId=self.train_id)
         self.session.headers.update(self.sign_header(data))
-        resp = self.session.post(url=XybSign.URL_TRAIN_INFO, data=data).json()
+        resp = self.session.post(url=XybSign.URL_TRAIN_INFO, data=data)
+        resp = self._except_json_resp(resp)
         if resp["code"] == "200":
             self.train_type = resp["data"]["clockRuleType"]
             self.post_state = resp["data"]["postInfo"]["state"]
@@ -211,7 +225,8 @@ class XybAccount:
     def get_ip(self) -> str:
         """获得请求IP"""
         self.session.headers.update(self.sign_header({}))
-        resp = self.session.get(url=XybSign.URL_IP).json()
+        resp = self.session.get(url=XybSign.URL_IP)
+        resp = self._except_json_resp(resp)
         if resp["code"] == "200":
             return resp["data"]["ip"]
         else:
@@ -248,7 +263,8 @@ class XybAccount:
             'city': self.location['city']
         }
         self.session.headers.update(self.sign_header(data))
-        resp = self.session.post(url=XybSign.URL_BEHAVIOR, data=data).json()
+        resp = self.session.post(url=XybSign.URL_BEHAVIOR, data=data)
+        resp = self._except_json_resp(resp)
         if resp["code"] != "200":
             self._request_error("发送签到信息失败", resp)
 
@@ -285,7 +301,8 @@ class XybAccount:
             raise RuntimeError(f"传入的签到类型错误:{status}")
         data = self._prepare_sign(status)
         self.session.headers.update(self.sign_header(data))
-        resp = self.session.post(url=XybSign.URL_AUTO_CLOCK, data=data).json()
+        resp = self.session.post(url=XybSign.URL_AUTO_CLOCK, data=data)
+        resp = self._except_json_resp(resp)
         self.load_train_info()
         if resp["code"] != "200":
             self._request_error(f"无法进行【自动】{['签退', '签到'][status - 1]}", resp)
@@ -302,7 +319,8 @@ class XybAccount:
             raise RuntimeError(f"传入的签到类型错误:{status}")
         data = self._prepare_sign(status)
         self.session.headers.update(self.sign_header(data))
-        resp = self.session.post(url=XybSign.URL_NEW_CLOCK, data=data).json()
+        resp = self.session.post(url=XybSign.URL_NEW_CLOCK, data=data)
+        resp = self._except_json_resp(resp)
         self.load_train_info()
         if resp["code"] != "200":
             self._request_error(f"无法进行【新增】{['签退', '签到'][status - 1]}", resp)
@@ -319,7 +337,8 @@ class XybAccount:
             raise RuntimeError(f"传入的签到类型错误:{status}")
         data = self._prepare_sign(status)
         self.session.headers.update(self.sign_header(data))
-        resp = self.session.post(url=XybSign.URL_UPDATE_CLOCK, data=data).json()
+        resp = self.session.post(url=XybSign.URL_UPDATE_CLOCK, data=data)
+        resp = self._except_json_resp(resp)
         self.load_train_info()
         if resp["code"] != "200":
             self._request_error(f"无法进行【覆盖】{['签退', '签到'][status - 1]}", resp)
