@@ -13,6 +13,14 @@ import requests
 from webhooks import on_sign_in, on_sign_out
 
 
+class reqSession(requests.Session):
+    '''requests.Session的子类, 增添了请求的默认超时时间避免卡死'''
+
+    def request(self, *args, **kwargs):
+        kwargs.setdefault('timeout', (10, 30))
+        return super(reqSession, self).request(*args, **kwargs)
+
+
 def init_logger(logger: logging.Logger, fmt="%(asctime)s - %(name)s - %(levelname)s: %(message)s"):
     # logger.setLevel(logging.INFO)
     formatter = logging.Formatter(fmt)
@@ -26,7 +34,7 @@ class XybAccount:
         self.logger = logging.Logger("XybAccount", logging.INFO)
         init_logger(self.logger)
         self.train_init = False
-        self.session = requests.Session()
+        self.session = reqSession()
         self.session.headers = XybSign.HEADERS
         self.open_id = config.get("openid")
         self.union_id = config.get("unionid")
@@ -121,7 +129,8 @@ class XybAccount:
         :param now_time: 时间戳
         :return: 签名用Headers
         """
-        re_punctuation = re.compile("[`~!@#$%^&*()+=|{}':;',\\[\\].<>/?~！@#￥%……&*（）——+|{}【】‘；：”“’。，、？]")
+        re_punctuation = re.compile(
+            "[`~!@#$%^&*()+=|{}':;',\\[\\].<>/?~！@#￥%……&*（）——+|{}【】‘；：”“’。，、？]")
         cookbook = ["5", "b", "f", "A", "J", "Q", "g", "a", "l", "p", "s", "q", "H", "4", "L", "Q", "g", "1", "6", "Q",
                     "Z", "v", "w", "b", "c", "e", "2", "2", "m", "l", "E", "g", "G", "H", "I", "r", "o", "s", "d", "5",
                     "7", "x", "t", "J", "S", "T", "F", "v", "w", "4", "8", "9", "0", "K", "E", "3", "4", "0", "m", "r",
@@ -130,7 +139,8 @@ class XybAccount:
                       "street", "text", "reason", "searchvalue", "key", "answers", "leaveReason", "personRemark",
                       "selfAppraisal", "imgUrl", "wxname", "deviceId", "avatarTempPath", "file", "file", "model",
                       "brand", "system", "deviceId", "platform"]
-        noce = noce if noce else [random.randint(0, len(cookbook) - 1) for _ in range(20)]
+        noce = noce if noce else [random.randint(
+            0, len(cookbook) - 1) for _ in range(20)]
         now_time = now_time if now_time else int(time.time())
         sorted_data = dict(sorted(data.items(), key=lambda x: x[0]))
 
@@ -149,7 +159,8 @@ class XybAccount:
         sign_str = sign_str.replace(">", "")
         sign_str = sign_str.replace("&", "")
         sign_str = sign_str.replace("-", "")
-        sign_str = re.sub(f'\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F]', "", sign_str)
+        sign_str = re.sub(
+            f'\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F]', "", sign_str)
         sign_str = quote(sign_str)
         sign = hashlib.md5(sign_str.encode('ascii'))
 
@@ -206,14 +217,17 @@ class XybAccount:
             self.is_sign_in = bool(resp["data"]["clockInfo"]["inTime"])
             self.is_sign_out = bool(resp["data"]["clockInfo"]["outTime"])
             if not self.train_init:
-                self.logger.info(f"实习类型：{'自主' if self.train_type else '集中'}，实习定位：{'有' if self.post_state else '无'}")
+                self.logger.info(
+                    f"实习类型：{'自主' if self.train_type else '集中'}，实习定位：{'有' if self.post_state else '无'}")
                 if self.post_state:
                     if self.sign_lat and self.sign_lng:
-                        self.logger.warning(f"配置了一个有效的签到坐标{self.sign_lat}, {self.sign_lng}，将不再使用实习坐标")
+                        self.logger.warning(
+                            f"配置了一个有效的签到坐标{self.sign_lat}, {self.sign_lng}，将不再使用实习坐标")
                     else:
                         self.sign_lat = resp["data"]["postInfo"]["lat"]
                         self.sign_lng = resp["data"]["postInfo"]["lng"]
-                        self.logger.info(f"将使用获取到的实习坐标：{self.sign_lat}, {self.sign_lng}")
+                        self.logger.info(
+                            f"将使用获取到的实习坐标：{self.sign_lat}, {self.sign_lng}")
             self.logger.info(
                 f"考勤状态：Sign in[{'√' if self.is_sign_in else 'x'}] || Sign out[{'√' if self.is_sign_out else 'x'}]")
             if not self.sign_lat:
@@ -484,7 +498,8 @@ class XybSign:
                 self.logger.error("调用Webhook时出现异常")
                 self.logger.exception(err)
                 counter.update((False,))
-        self.logger.info(f"Webhooks: {len(hook_data)} || {counter[True]}(完成) / {counter[False]}(失败)")
+        self.logger.info(
+            f"Webhooks: {len(hook_data)} || {counter[True]}(完成) / {counter[False]}(失败)")
 
     def sign_in_all(self, overwrite=False):
         """

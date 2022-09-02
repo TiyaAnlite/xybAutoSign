@@ -1,17 +1,43 @@
-[
-    {
-        "openid": "",
-        "unionid": "",
-        "username": "",
-        "password": "",
-        "location": {
-            "province": "",
-            "country": "",
-            "city": "",
-            "adcode": 0,
-            "address": "",
-            "lat": 0,
-            "lng": 0
+{
+    "sendMessage": {
+        "qmsg_key": "",
+        "qmsg_qq": "",
+        "qmsg_isGroup": 0,
+        "pushplus_parameters": "",
+        "pushplus_isNew": false,
+        "smtp_host": "smtp.qq.com",
+        "smtp_user": "*****@qq.com",
+        "smtp_key": "",
+        "smtp_sender": "*****@qq.com",
+        "smtp_senderName": "发送者名字",
+        "smtp_receivers": [
+            "*****@qq.com"
+        ]
+    },
+    "users": [
+        {
+            "remarkname": "默认备注名",
+            "openid": "",
+            "unionid": "",
+            "username": "",
+            "password": "",
+            "signIn": {
+                "time": "1-7 1-12 1-31 0-23 0-59",
+                "overwrite": true
+            },
+            "signOut": {
+                "time": "1-7 1-12 1-31 0-23 0-59",
+                "overwrite": true
+            },
+            "location": {
+                "province": "",
+                "country": "",
+                "city": "",
+                "adcode": 0,
+                "address": "",
+                "lat": 0,
+                "lng": 0
+            }
         }
-    }
-]
+    ]
+}

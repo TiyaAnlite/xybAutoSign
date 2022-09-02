@@ -81,25 +81,75 @@
 
 ```javascript
 {
-    //用于微信登陆
-    "openid": "ooruxxxxxxxxxxxxxxxxxxxxxxl0",  //校友邦openId
-    "unionid": "oHYxxxxxxxxxxxxxxxxxxxxxxQhE",  //校友邦unionId
-    //用于账号密码登录
-    "username": "xxxxxx",  //用户名
-    "password": "xxxxxx",  //密码
-    //以下是签到位置相关信息
-    "location": {
-        "province": "xx省",  //省份，已弃用
-        "country": "xx市",  //城市，已弃用
-        "city": "xx区",  //区（县），已弃用
-        "adcode": 440000,  //行政区划代码
-        "address": "xxxx"  //详细地址
-        //以下是无签到范围坐标信息时，需要填写的坐标
-        "lat": 0,
-        "lng": 0
-    }
+    //推送: 推送函数的整体运行情况(不需要的项目不用填，可以删掉或者放着不管)
+    "sendMessage": {
+        "qmsg_key": "", //qmsg推送的key
+        "qmsg_qq": "", //qmsg推送的qq号
+        "qmsg_isGroup": 0, //此qq号是否为群(是的话填1，反之为0)
+        "pushplus_parameters": "", //pushplus参数，填入令牌(token)即可推送。也可以填入"token=xxx&topic=xxx"形式自定义更多参数
+        "pushplus_isNew": false, //False使用旧版pushplus(https://pushplus.hxtrip.com)，True使用新版pushplus(https://www.pushplus.plus)
+        "smtp_host": "smtp.qq.com", //SMTP服务器域名
+        "smtp_user": "*****@qq.com", // SMTP服务器用户名
+        "smtp_key": "", // SMTP服务器密钥
+        "smtp_sender": "*****@qq.com", // 发送邮箱
+        "smtp_senderName": "发送者名字", // 发送者名字(选填)
+        "smtp_receivers": [ // 接收邮箱(可填多个)
+            "*****@qq.com"
+        ]
+    },
+    "users": [
+        {
+            "remarkname": "默认备注名", //备注名, 用于推送标记(可以乱填)
+            //用于微信登陆
+            "openid": "ooruxxxxxxxxxxxxxxxxxxxxxxl0", //校友邦openId
+            "unionid": "oHYxxxxxxxxxxxxxxxxxxxxxxQhE", //校友邦unionId
+            //用于账号密码登录
+            "username": "xxxxxx", //用户名
+            "password": "xxxxxx", //密码
+            //以下是签到位置相关信息
+            "location": {
+                "province": "xx省", //省份，已弃用
+                "country": "xx市", //城市，已弃用
+                "city": "xx区", //区（县），已弃用
+                "adcode": 440000, //行政区划代码
+                "address": "xxxx" //详细地址
+                //以下是无签到范围坐标信息时，需要填写的坐标
+                "lat": 0,
+                "lng": 0
+            },
+            //签到相关
+            "signIn": {
+                "time": "1-7 1-12 1-31 0-23 0-59", // 任务执行时间范围, 详情请参考以下文档
+                "overwrite": true // 是否覆盖旧的签到信息
+            },
+            //签退相关
+            "signOut": {
+                "time": "1-7 1-12 1-31 0-23 0-59", // 任务执行时间范围, 详情请参考以下文档
+                "overwrite": true // 是否覆盖旧的签退信息
+            }
+        }
+    ]
 }
 ```
+
+**「消息推送」和「时间限定」生效条件**
+
+目前「消息推送」和「`signIn`和`signOut`的任务时间限定`time`」仅在以下两种情况下生效
+
+* 本地运行
+* 定时任务名称**没有**设定为**SignOut**和**SignIn**
+
+**关于`signIn`和`signOut`中的time**
+
+`time`总共有五项，分别代表`周(星期几) 月 日 时 分`。(星期一为1，星期日为7)
+
+每一项时间中用`,`分隔多个时间/时间段。用`-`可以表示时间范围。
+
+> 比如`1-5 7 1-10 0-6,22-23 0-59`的含义是
+>
+> 在7月的1到10号的工作日(周一到周五)，早上0到6时或晚上22到23时的0到59分都会正常执行任务。
+>
+> 而不在上述时间段则跳过此任务。
 
 #### 使用
 
